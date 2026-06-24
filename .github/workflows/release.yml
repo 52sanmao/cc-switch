@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -15,7 +16,9 @@ concurrency:
 jobs:
   release:
     runs-on: ${{ matrix.os }}
+    continue-on-error: true
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-2022
@@ -97,11 +100,10 @@ jobs:
       - name: Prepare Tauri signing key
         shell: bash
         run: |
-          # 调试：检查 Secret 是否存在
           if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-            echo "❌ TAURI_SIGNING_PRIVATE_KEY Secret 为空或不存在" >&2
-            echo "请检查 GitHub 仓库 Settings > Secrets and variables > Actions" >&2
-            exit 1
+            echo "⚠️ TAURI_SIGNING_PRIVATE_KEY not set — skipping code signing"
+            echo "SKIP_SIGNING=true" >> "$GITHUB_ENV"
+            exit 0
           fi
           
           RAW="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
@@ -191,6 +193,13 @@ jobs:
 
           # Cleanup certificate file
           rm -f "$CERT_PATH"
+
+      - name: Disable updater signing when private key is absent
+        if: env.SKIP_SIGNING == 'true'
+        shell: bash
+        run: |
+          sed -i 's/"createUpdaterArtifacts": true/"createUpdaterArtifacts": false/' src-tauri/tauri.conf.json
+          echo "Disabled updater artifacts creation (no signing key available)"
 
       - name: Build Tauri App (macOS)
         if: runner.os == 'macOS'
